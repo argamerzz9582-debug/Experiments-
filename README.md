@@ -71,10 +71,20 @@ npm install
 npm run build:demo
 ```
 
-### 2. Connect to Any External Minecraft Java Server (Vanilla / Paper / Spigot / Fabric)
-Set `MC_HOST`, `MC_PORT`, `MC_USERNAME`, and `MC_VERSION` in `mcp.config.json` or environment variables:
+### 2. Connect & Build on Any External Minecraft Java Server (`.mcsh.gg`, Aternos, Paper, Spigot, Fabric, LAN)
+Join any Cracked (`offline`) or Premium (`microsoft`) server directly via CLI (auto-resolves DNS SRV `_minecraft._tcp.*` + fallback ports and supports non-op `pure_mineflayer` physical building):
 ```bash
-MC_HOST=play.myserver.local MC_PORT=25565 MC_USERNAME=NightforgeBot MC_VERSION=1.21.1 \
+cd nightforge && npm install
+
+# Join server and stay online in chat
+node src/cli/nightforge.js join nightforge.mcsh.gg 18206 NightforgeBot offline auto
+
+# Join remote server, step outside spawn-protection, and build + verify Nordic Guildhall live
+node src/cli/nightforge.js remote-build nightforge.mcsh.gg 18206 NightforgeBot offline auto
+```
+Or launch the MCP server (`nf_join_server` + 16 engineering tools) for Claude Desktop / Cursor / VS Code:
+```bash
+MC_HOST=nightforge.mcsh.gg MC_PORT=18206 MC_USERNAME=NightforgeBot MC_VERSION=auto \
   node nightforge/src/mcp/nightforge-mcp-server.js
 ```
 
