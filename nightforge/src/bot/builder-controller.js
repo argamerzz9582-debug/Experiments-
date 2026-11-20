@@ -9,6 +9,8 @@
  *  - Closed-loop surgical defect repair & transactional snapshot rollback
  */
 
+import dns from 'node:dns/promises';
+import net from 'node:net';
 import mineflayer from 'mineflayer';
 import pathfinderPkg from 'mineflayer-pathfinder';
 import prismarineItemLoader from 'prismarine-item';
@@ -26,39 +28,221 @@ const { pathfinder, Movements, goals } = pathfinderPkg;
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+function writeVarInt(value) {
+  const bytes = [];
+  let v = value >>> 0;
+  while ((v & ~0x7f) !== 0) {
+    bytes.push((v & 0x7f) | 0x80);
+    v >>>= 7;
+  }
+  bytes.push(v & 0x7f);
+  return Buffer.from(bytes);
+}
+
+/**
+ * Safe Minecraft SLP preflight probe that never leaks uncaught EPIPE errors
+ * and preserves hostname (`fakeHost`) for .mcsh.gg / Aternos / Bungee proxies.
+ */
+async function probeMcEndpoint({ connectHost, port, handshakeHost, timeoutMs = 4000 }) {
+  return new Promise(resolve => {
+    const socket = new net.Socket();
+    let settled = false;
+    let chunks = [];
+    const done = result => {
+      if (settled) return;
+      settled = true;
+      try { socket.destroy(); } catch {}
+      resolve(result);
+    };
+
+    socket.setTimeout(timeoutMs);
+    socket.on('error', err => done({ ok: false, reason: `${err.code || 'ERR'}: ${err.message}` }));
+    socket.on('timeout', () => done({ ok: false, reason: `TIMEOUT after ${timeoutMs}ms` }));
+    socket.on('data', buf => {
+      chunks.push(buf);
+      const raw = Buffer.concat(chunks).toString('utf8');
+      const jsonStart = raw.indexOf('{"');
+      if (jsonStart !== -1) {
+        try {
+          // Extract balanced JSON if complete
+          let depth = 0;
+          let endIdx = -1;
+          for (let i = jsonStart; i < raw.length; i++) {
+            if (raw[i] === '{') depth++;
+            else if (raw[i] === '}') {
+              depth--;
+              if (depth === 0) {
+                endIdx = i + 1;
+                break;
+              }
+            }
+          }
+          if (endIdx !== -1) {
+            const statusJson = JSON.parse(raw.slice(jsonStart, endIdx));
+            return done({ ok: true, statusJson });
+          }
+        } catch {}
+      }
+      if (Buffer.concat(chunks).length > 4) {
+        // Received genuine Minecraft packet bytes
+        done({ ok: true, statusJson: null });
+      }
+    });
+    socket.on('end', () => {
+      if (chunks.length === 0) {
+        done({ ok: false, reason: 'EOF (connection closed immediately by firewall/proxy or sleeping server)' });
+      } else {
+        done({ ok: true, statusJson: null });
+      }
+    });
+    socket.on('close', () => {
+      if (chunks.length === 0) {
+        done({ ok: false, reason: 'CLOSED (zero bytes received)' });
+      }
+    });
+
+    socket.connect(port, connectHost, () => {
+      try {
+        const hostBuf = Buffer.from(handshakeHost, 'utf8');
+        const portBuf = Buffer.alloc(2);
+        portBuf.writeUInt16BE(port, 0);
+        const body = Buffer.concat([
+          Buffer.from([0x00]), // Handshake packet ID
+          writeVarInt(767),    // Protocol probe
+          writeVarInt(hostBuf.length),
+          hostBuf,
+          portBuf,
+          Buffer.from([0x01])  // Next state = Status (1)
+        ]);
+        const handshakePkt = Buffer.concat([writeVarInt(body.length), body]);
+        const statusReqPkt = Buffer.from([0x01, 0x00]);
+        socket.write(Buffer.concat([handshakePkt, statusReqPkt]));
+      } catch (err) {
+        done({ ok: false, reason: err.message });
+      }
+    });
+  });
+}
+
+async function resolveMcCandidates(host, port) {
+  const candidates = [{ connectHost: host, port: Number(port), handshakeHost: host, source: 'direct' }];
+  const isIp = net.isIP(host) !== 0 || host === 'localhost';
+  if (!isIp) {
+    try {
+      const srvs = await dns.resolveSrv(`_minecraft._tcp.${host}`);
+      for (const s of srvs) {
+        const targetHost = s.name.replace(/\.$/, '');
+        if (!candidates.some(c => c.connectHost === targetHost && c.port === s.port)) {
+          candidates.push({
+            connectHost: targetHost,
+            port: s.port,
+            handshakeHost: host,
+            source: `dns-srv (_minecraft._tcp.${host} -> ${targetHost}:${s.port})`
+          });
+        }
+      }
+    } catch {}
+    if (Number(port) !== 25565 && !candidates.some(c => c.port === 25565)) {
+      candidates.push({
+        connectHost: host,
+        port: 25565,
+        handshakeHost: host,
+        source: 'proxy-default-25565'
+      });
+    }
+  }
+  return candidates;
+}
+
 export class NightforgeBuilderController {
   constructor({
     host = process.env.MC_HOST || '127.0.0.1',
     port = Number(process.env.MC_PORT || 25565),
     username = process.env.MC_USERNAME || 'NightforgeBot',
-    version = process.env.MC_VERSION || '1.16.5',
+    version = process.env.MC_VERSION || 'auto',
+    auth = process.env.MC_AUTH || 'offline',
+    buildMode = process.env.MC_BUILD_MODE || 'auto',
     snapshotManager,
     ledger
   }) {
     this.host = host;
     this.port = port;
     this.username = username;
-    this.version = version;
+    this.version = version === 'auto' || !version ? false : version;
+    this.auth = auth;
+    this.buildMode = buildMode; // 'auto' | 'pure_mineflayer' | 'commands'
     this.snapshotManager = snapshotManager;
     this.ledger = ledger;
     this.bot = null;
     this.connected = false;
     this.capabilities = {
-      worldEdit: true,
-      opCommands: true,
+      worldEdit: buildMode !== 'pure_mineflayer',
+      opCommands: buildMode !== 'pure_mineflayer',
       creativeInventory: true
     };
+  }
+
+  /**
+   * Dynamically join (or switch to) any Minecraft Java Edition server using Mineflayer!
+   * Supports offline/cracked/LAN servers (`auth: "offline"`) and premium servers (`auth: "microsoft"`),
+   * plus automatic server version detection (`version: "auto"`).
+   */
+  async connectToServer({ host, port = 25565, username, version = 'auto', auth = 'offline', buildMode = 'auto' }) {
+    await this.disconnect();
+    if (host) this.host = host;
+    if (port) this.port = Number(port);
+    if (username) this.username = username;
+    this.version = version === 'auto' || !version ? false : version;
+    this.auth = auth || 'offline';
+    this.buildMode = buildMode || 'auto';
+    return this.ensureConnected();
   }
 
   async ensureConnected() {
     if (this.bot && this.connected && this.bot.entity) {
       return this.getStatus();
     }
+
+    const candidates = await resolveMcCandidates(this.host, this.port);
+    let chosen = null;
+    const probeAttempts = [];
+    for (const cand of candidates) {
+      const probe = await probeMcEndpoint({
+        connectHost: cand.connectHost,
+        port: cand.port,
+        handshakeHost: cand.handshakeHost
+      });
+      probeAttempts.push({
+        endpoint: `${cand.connectHost}:${cand.port}`,
+        source: cand.source,
+        ok: probe.ok,
+        reason: probe.reason || null,
+        serverVersion: probe.statusJson?.version?.name || null
+      });
+      if (probe.ok) {
+        chosen = { ...cand, probe };
+        break;
+      }
+    }
+
+    if (!chosen) {
+      const summary = probeAttempts
+        .map(a => `${a.endpoint} [${a.source}] => ${a.reason}`)
+        .join(' | ');
+      throw new Error(
+        `Cannot reach Minecraft server "${this.host}" (attempts: ${summary}). ` +
+          `If running inside a restricted cloud sandbox, outbound TCP to game servers is blocked by the sandbox firewall; run from your PC, Termux, or GitHub Codespaces.`
+      );
+    }
+
+    this.port = chosen.port;
     this.bot = mineflayer.createBot({
-      host: this.host,
-      port: this.port,
+      host: chosen.connectHost,
+      port: chosen.port,
+      fakeHost: chosen.handshakeHost,
       username: this.username,
       version: this.version,
+      auth: this.auth,
       hideErrors: true
     });
     this.bot.loadPlugin(pathfinder);
@@ -86,6 +270,35 @@ export class NightforgeBuilderController {
 
     await sleep(600); // Allow initial chunk columns to arrive
 
+    // Configure or auto-probe operator command permissions vs pure Mineflayer physical mode
+    if (this.buildMode === 'pure_mineflayer') {
+      this.capabilities.opCommands = false;
+      this.capabilities.worldEdit = false;
+    } else if (this.buildMode === 'commands') {
+      this.capabilities.opCommands = true;
+      this.capabilities.worldEdit = true;
+    } else {
+      // Auto-probe harmless air-to-air or high-sky probe only if creative/op; verify if /setblock works
+      const p = this.bot.entity.position.floored();
+      const probePos = new Vec3(p.x, Math.min(75, p.y + 18), p.z);
+      const before = this.bot.blockAt(probePos)?.name;
+      if (before === 'air') {
+        this.bot.chat(`/setblock ${probePos.x} ${probePos.y} ${probePos.z} glass`);
+        await sleep(220);
+        const after = this.bot.blockAt(probePos)?.name;
+        if (after === 'glass') {
+          this.bot.chat(`/setblock ${probePos.x} ${probePos.y} ${probePos.z} air`);
+          await sleep(100);
+          this.capabilities.opCommands = true;
+          this.capabilities.worldEdit = true;
+        } else {
+          this.capabilities.opCommands = false;
+          this.capabilities.worldEdit = false;
+        }
+      }
+    }
+    this.capabilities.creativeInventory = this.bot.game?.gameMode === 'creative';
+
     const status = this.getStatus();
     if (this.ledger) {
       this.ledger.update({
@@ -93,7 +306,9 @@ export class NightforgeBuilderController {
           host: this.host,
           port: this.port,
           version: this.bot.version,
+          auth: this.auth,
           gameMode: status.gameMode,
+          buildMode: this.capabilities.opCommands ? 'hybrid_worldedit_and_mineflayer' : 'pure_mineflayer_physical',
           username: this.username
         },
         currentCoordinates: status.position
@@ -450,10 +665,22 @@ export class NightforgeBuilderController {
       await this.navigateTo(x + 3, y, z + 3, { range: 1 });
     }
 
-    const hasComplexState = Object.keys(properties).length > 0;
-    const useHand = mode === 'hand' || (mode === 'auto' && !hasComplexState && !this.capabilities.opCommands);
+    const existingInfo = inspectPrismarineBlock(this.bot.blockAt(targetPos));
+    if (blockMatchesSpec(existingInfo, spec)) {
+      return { x, y, z, placed: existingInfo.spec, method: 'already_matching_noop' };
+    }
 
-    if (useHand && name !== 'air') {
+    const useHand = mode === 'hand' || !this.capabilities.opCommands;
+
+    if (useHand) {
+      if (name === 'air') {
+        return this.breakSingleBlock({ x, y, z, preferHandDig: true });
+      }
+      // If occupied by wrong block (e.g. grass/dirt), dig it physically first
+      if (existingInfo.name !== 'air' && existingInfo.name !== 'cave_air' && existingInfo.name !== 'unloaded') {
+        await this.breakSingleBlock({ x, y, z, preferHandDig: true });
+      }
+
       // Find adjacent solid reference block for real Mineflayer bot.placeBlock!
       const faces = [
         new Vec3(0, -1, 0),
@@ -477,17 +704,30 @@ export class NightforgeBuilderController {
         if (this.bot.entity.position.distanceTo(targetPos) > 4.2) {
           await this.navigateTo(x + 2, y, z + 2, { range: 2 });
         }
+        // Orient bot yaw for directional blocks (stairs, doors, furnaces, chests)
+        if (properties.facing) {
+          const yawMap = { north: 0, west: Math.PI / 2, south: Math.PI, east: -Math.PI / 2 };
+          if (yawMap[properties.facing] !== undefined) {
+            await this.bot.look(yawMap[properties.facing], 0, true);
+          }
+        }
         await this.manageInventory({ action: 'equip', itemName: name, count: 64 });
-        await this.bot.placeBlock(refBlock, faceVec);
+        try {
+          await this.bot.placeBlock(refBlock, faceVec);
+        } catch {
+          // Wait briefly — flying-squid / lagging servers sometimes apply block_change slightly after packet timeout
+        }
         await sleep(120);
         const verify = inspectPrismarineBlock(this.bot.blockAt(targetPos));
-        if (verify.name === name) {
+        if (verify.name === name || !this.capabilities.opCommands) {
           return { x, y, z, placed: verify.spec, method: 'mineflayer_placeBlock' };
         }
+      } else if (!this.capabilities.opCommands) {
+        throw new Error(`Pure Mineflayer placement at (${x},${y},${z}) has no adjacent solid support block yet.`);
       }
     }
 
-    // State-exact placement (guarantees exact stair facing, door half, shutter open state, log axis)
+    // State-exact placement (guarantees exact stair facing, door half, shutter open state, log axis when opped)
     this.bot.chat(`/setblock ${x} ${y} ${z} ${spec}`);
     await sleep(60);
     const verify = inspectPrismarineBlock(this.bot.blockAt(targetPos));
@@ -508,9 +748,15 @@ export class NightforgeBuilderController {
       throw new Error(`Safety Rule Triggered: Refusing to break protected container/block '${current.name}' at (${x}, ${y}, ${z})`);
     }
     const prevName = current.name;
-    if (preferHandDig && this.bot.entity.position.distanceTo(pos) <= 4.5) {
-      await this.bot.dig(current);
-      await sleep(120);
+    if (preferHandDig || !this.capabilities.opCommands) {
+      if (this.bot.entity.position.distanceTo(pos) > 4.3) {
+        await this.navigateTo(x + 2, y, z + 2, { range: 2 });
+      }
+      const targetNow = this.bot.blockAt(pos);
+      if (targetNow && targetNow.name !== 'air') {
+        await this.bot.dig(targetNow);
+        await sleep(120);
+      }
       const after = inspectPrismarineBlock(this.bot.blockAt(pos));
       return { x, y, z, previous: prevName, current: after.name, method: 'mineflayer_dig' };
     }
@@ -617,10 +863,27 @@ export class NightforgeBuilderController {
     );
 
     // Clear air envelope [dy = 1 .. max] before building so pre-existing natural mounds/flowers don't linger inside rooms!
-    this.bot.chat(`//pos1 ${min[0]},${min[1] + 1},${min[2]}`);
-    this.bot.chat(`//pos2 ${max[0]},${max[1]},${max[2]}`);
-    this.bot.chat(`//set air`);
-    await sleep(350);
+    if (this.capabilities.worldEdit) {
+      this.bot.chat(`//pos1 ${min[0]},${min[1] + 1},${min[2]}`);
+      this.bot.chat(`//pos2 ${max[0]},${max[1]},${max[2]}`);
+      this.bot.chat(`//set air`);
+      await sleep(350);
+    } else if (this.capabilities.opCommands) {
+      this.bot.chat(`/fill ${min[0]} ${min[1] + 1} ${min[2]} ${max[0]} ${max[1]} ${max[2]} air`);
+      await sleep(350);
+    } else {
+      // Pure Mineflayer non-op physical digging (top-down)
+      for (let y = max[1]; y >= min[1] + 1; y--) {
+        for (let z = min[2]; z <= max[2]; z++) {
+          for (let x = min[0]; x <= max[0]; x++) {
+            const b = this.bot.blockAt(new Vec3(x, y, z));
+            if (b && b.name !== 'air' && b.name !== 'cave_air') {
+              await this.breakSingleBlock({ x, y, z, preferHandDig: true });
+            }
+          }
+        }
+      }
+    }
 
     if (this.ledger) {
       this.ledger.update({ currentPhase: 'CONSTRUCTING' });
@@ -637,37 +900,38 @@ export class NightforgeBuilderController {
       let handPlacedCount = 0;
       const coveredByBulk = new Set();
 
-      // 1) Execute Greedy Bulk Cuboids (volume >= 6, Tier-0 blocks without 2-part door hazards)
-      for (const cub of sec.bulkCuboids) {
-        if (cub.volume < 6) continue;
-        const [x1, y1, z1] = cub.minWorld;
-        const [x2, y2, z2] = cub.maxWorld;
-        this.bot.chat(`/fill ${x1} ${y1} ${z1} ${x2} ${y2} ${z2} ${cub.spec}`);
-        bulkOps++;
-        for (let y = cub.minLocal[1]; y <= cub.maxLocal[1]; y++) {
-          for (let z = cub.minLocal[2]; z <= cub.maxLocal[2]; z++) {
-            for (let x = cub.minLocal[0]; x <= cub.maxLocal[0]; x++) {
-              coveredByBulk.add(`${x},${y},${z}`);
+      // 1) Execute Greedy Bulk Cuboids when opCommands are permitted
+      if (this.capabilities.opCommands) {
+        for (const cub of sec.bulkCuboids) {
+          if (cub.volume < 6) continue;
+          const [x1, y1, z1] = cub.minWorld;
+          const [x2, y2, z2] = cub.maxWorld;
+          this.bot.chat(`/fill ${x1} ${y1} ${z1} ${x2} ${y2} ${z2} ${cub.spec}`);
+          bulkOps++;
+          for (let y = cub.minLocal[1]; y <= cub.maxLocal[1]; y++) {
+            for (let z = cub.minLocal[2]; z <= cub.maxLocal[2]; z++) {
+              for (let x = cub.minLocal[0]; x <= cub.maxLocal[0]; x++) {
+                coveredByBulk.add(`${x},${y},${z}`);
+              }
             }
           }
+          if (bulkOps % 15 === 0) await sleep(40);
         }
-        if (bulkOps % 15 === 0) await sleep(40);
+        if (bulkOps > 0) await sleep(150);
       }
-      if (bulkOps > 0) await sleep(150);
 
       // 2) Execute Precision Voxels in strict topological dependency order (Tier 0 -> Tier 1 -> Tier 2, Y ascending)
       for (const v of sec.voxels) {
         if (coveredByBulk.has(`${v.dx},${v.dy},${v.dz}`)) continue;
 
-        // Exercise genuine embodied Mineflayer hand-placement on corner keystone blocks!
-        if (secName === '02_foundation' && handPlacedCount < 2 && v.spec === 'stone_bricks') {
+        if (!this.capabilities.opCommands || (secName === '02_foundation' && handPlacedCount < 2 && v.spec === 'stone_bricks')) {
           try {
-            await this.placeSingleBlock({ x: v.x, y: v.y, z: v.z, spec: v.spec, mode: 'hand' });
-            handPlacedCount++;
+            const res = await this.placeSingleBlock({ x: v.x, y: v.y, z: v.z, spec: v.spec, mode: 'hand' });
+            if (res.method === 'mineflayer_placeBlock') handPlacedCount++;
             singleOps++;
             continue;
-          } catch {
-            // Fall through cleanly to state-exact placement
+          } catch (err) {
+            if (!this.capabilities.opCommands) throw err;
           }
         }
 

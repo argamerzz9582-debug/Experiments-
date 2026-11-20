@@ -84,11 +84,12 @@ test('12-gate verifier passes clean Guildhall 12/12 and accurately flags injecte
   assert.equal(brokenVer.defectSummary.missingCount, 2);
 });
 
-test('nightforge-mcp stdio server initializes and exposes all 16 engineering tools', async () => {
+test('nightforge-mcp stdio server initializes and exposes all 17 engineering tools including nf_join_server', async () => {
   const fed = new NightforgeMcpFederation({ host: '127.0.0.1', port: 25565 });
   try {
     const summary = await fed.connectAll({ includeYuniko: false });
-    assert.equal(summary.servers['nightforge-mcp'].toolCount, 16);
+    assert.equal(summary.servers['nightforge-mcp'].toolCount, 17);
+    assert.ok(summary.servers['nightforge-mcp'].tools.includes('nf_join_server'));
     assert.ok(summary.servers['nightforge-mcp'].tools.includes('nf_verify_structure'));
     assert.ok(summary.servers['nightforge-mcp'].tools.includes('nf_repair_structure'));
   } finally {
