@@ -1,0 +1,201 @@
+{
+  "referenceSource": "/home/user/Experiments-/assets/reference/nordic_guildhall_reference.png",
+  "imageResolution": {
+    "width": 1536,
+    "height": 1024
+  },
+  "visualMetrics": {
+    "silhouetteBBoxNormalized": [
+      0.049,
+      0.086,
+      0.943,
+      0.969
+    ],
+    "silhouetteAspectRatio": 1.518,
+    "primaryGableApexXNormalized": 0.84,
+    "roofToWallHeightRatio": 1.318,
+    "gableSymmetryScore": 0.649,
+    "viewAngleClassification": "frontal_elevation"
+  },
+  "observedArchitecturalFeatures": {
+    "overallSilhouette": "Two-story Nordic medieval timber-and-stone guildhall with steep front-facing gable, side cross-gable wing, and stone chimney stack on East side",
+    "stories": 2,
+    "roofGeometry": "45-degree (1:1) pitched dark-wood gable roof with stepped stone-brick rake overhangs, upside-down soffit stairs, side cross-gable, and smoking masonry chimney",
+    "entrance": "Recessed central double oak doorway framed by arched timber/stone trim, flanked by hanging lanterns, approached via wide stone-brick steps",
+    "balcony": "Recessed second-story central loggia/balcony above main entrance with dark spruce fence balustrade and hanging lanterns",
+    "windows": "Recessed paned windows on ground stone wall, upper cream plaster bays, and central attic gable, each framed by dark spruce shutters",
+    "pillarsAndBeams": "Full-height vertical dark spruce log columns on corners and bay divisions tied by horizontal spruce crossbeams and corbels",
+    "decorativeDetails": "Blue hanging guild banners on corner timber brackets, smoking chimney, warm lantern illumination",
+    "landscaping": "Stone-brick front courtyard plaza and perimeter path, geometric 2-block-high oak-leaf hedges, and 4 symmetrical courtyard lantern posts"
+  },
+  "estimatedDimensions": {
+    "structuralWidthX": {
+      "value": 17,
+      "unit": "blocks",
+      "confidence": "high",
+      "basis": "3 symmetric front bays + corner/bay pillars + odd-center gable apex"
+    },
+    "structuralDepthZ": {
+      "value": 15,
+      "unit": "blocks",
+      "confidence": "medium_high",
+      "basis": "3 visible side bays in 3/4 view"
+    },
+    "roofEnvelopeSize": {
+      "widthX": 19,
+      "depthZ": 17,
+      "note": "1-block overhang on all 4 sides"
+    },
+    "siteWithCourtyardSize": {
+      "widthX": 23,
+      "depthZ": 23,
+      "note": "Includes front courtyard plaza, hedges, and 4 lantern posts"
+    },
+    "totalHeightY": {
+      "value": 15,
+      "chimneyPeakY": 16,
+      "unit": "blocks",
+      "confidence": "high"
+    },
+    "floorHeights": {
+      "foundationPlinth": 1,
+      "groundFloorClearance": 4,
+      "floorDeckThickness": 1,
+      "upperFloorWallHeight": 4,
+      "gableAtticApex": 5
+    },
+    "wallThickness": {
+      "value": 1,
+      "reliefDepth": 2,
+      "basis": "Proud outer spruce columns + recessed infill walls & shutters"
+    },
+    "symmetryAxes": {
+      "primaryFrontFacadeAxis": "X = center (dx = 8 in 0..16 structural frame), bilateral mirror except East side chimney",
+      "rearElevation": "inferred_from_front_massing (unseen in single 3/4 reference)",
+      "interiorLayout": "inferred_functional_guildhall (unseen behind exterior glazing; synthesized per guildhall typology)"
+    }
+  },
+  "colorClusters": [
+    {
+      "rgb": [
+        27,
+        23,
+        15
+      ],
+      "share": 0.2802,
+      "matchedBlock": "spruce_log",
+      "architecturalRole": "timber_frame",
+      "colorDistance": 53.4
+    },
+    {
+      "rgb": [
+        101,
+        96,
+        75
+      ],
+      "share": 0.1455,
+      "matchedBlock": "stripped_spruce_log",
+      "architecturalRole": "timber_beam",
+      "colorDistance": 45.28
+    },
+    {
+      "rgb": [
+        82,
+        67,
+        43
+      ],
+      "share": 0.1417,
+      "matchedBlock": "spruce_planks",
+      "architecturalRole": "floor_wood",
+      "colorDistance": 61.2
+    },
+    {
+      "rgb": [
+        42,
+        50,
+        50
+      ],
+      "share": 0.1248,
+      "matchedBlock": "dark_oak_planks",
+      "architecturalRole": "roof_field",
+      "colorDistance": 63.85
+    },
+    {
+      "rgb": [
+        57,
+        41,
+        23
+      ],
+      "share": 0.1245,
+      "matchedBlock": "spruce_log",
+      "architecturalRole": "timber_frame",
+      "colorDistance": 14.43
+    },
+    {
+      "rgb": [
+        131,
+        121,
+        107
+      ],
+      "share": 0.1188,
+      "matchedBlock": "stone_bricks",
+      "architecturalRole": "masonry",
+      "colorDistance": 28.18
+    },
+    {
+      "rgb": [
+        172,
+        160,
+        146
+      ],
+      "share": 0.0645,
+      "matchedBlock": "birch_planks",
+      "architecturalRole": "wall_infill_wood",
+      "colorDistance": 57.55
+    }
+  ],
+  "recommendedPalette": {
+    "foundationAndGroundWalls": [
+      "stone_bricks",
+      "mossy_stone_bricks",
+      "cracked_stone_bricks",
+      "cobblestone"
+    ],
+    "structuralFrame": [
+      "spruce_log",
+      "stripped_spruce_log"
+    ],
+    "upperWallInfill": [
+      "white_terracotta",
+      "birch_planks"
+    ],
+    "roofField": [
+      "dark_oak_stairs",
+      "dark_oak_planks",
+      "dark_oak_slab"
+    ],
+    "roofTrimAndSteps": [
+      "stone_brick_stairs",
+      "stone_brick_slab",
+      "stone_brick_wall"
+    ],
+    "windowsAndDoors": [
+      "glass_pane",
+      "oak_door",
+      "spruce_trapdoor"
+    ],
+    "accentsAndLighting": [
+      "lantern",
+      "campfire",
+      "blue_wool",
+      "spruce_fence"
+    ],
+    "landscaping": [
+      "oak_leaves[persistent=true]",
+      "stone_bricks",
+      "andesite",
+      "grass_block",
+      "poppy"
+    ]
+  }
+}
