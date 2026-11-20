@@ -57,6 +57,28 @@ const mcpServer = new McpServer({
   version: '1.0.0'
 });
 
+// 0. nf_join_server
+mcpServer.tool(
+  'nf_join_server',
+  'Dynamically join any Minecraft Java Edition server using Mineflayer (supports auto-version detection, offline/cracked or Microsoft auth, and pure_mineflayer non-op survival/creative building).',
+  {
+    host: z.string(),
+    port: z.number().default(25565),
+    username: z.string().default('NightforgeBot'),
+    version: z.string().default('auto'),
+    auth: z.enum(['offline', 'microsoft']).default('offline'),
+    buildMode: z.enum(['auto', 'pure_mineflayer', 'commands']).default('auto')
+  },
+  async args => {
+    try {
+      const status = await controller.connectToServer(args);
+      return jsonResponse({ joined: true, status });
+    } catch (err) {
+      return errorResponse('nf_join_server', err);
+    }
+  }
+);
+
 // 1. nf_status
 mcpServer.tool(
   'nf_status',
