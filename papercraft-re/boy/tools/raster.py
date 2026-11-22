@@ -8,7 +8,7 @@ import json
 import numpy as np
 from PIL import Image
 
-ATLAS = "/tmp/pc/public/textures/Moving_Characters_1.webp"
+ATLAS = "/tmp/up/public/textures/Moving_Characters_1.webp"
 GEO = "/tmp/mc_geo.json"
 
 

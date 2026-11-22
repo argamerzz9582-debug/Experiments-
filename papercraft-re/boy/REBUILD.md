@@ -3,13 +3,14 @@
 The full rebuild was requested, so this replaces [CHARACTER.md](../CHARACTER.md)'s conclusion
 ("the 3D character needs Blender work") with an actually-executed geometry edit.
 
-**Status: 4 of 6 seasonal views converted. Files built, verified and ready to deploy.**
+**Status: all 6 seasonal views converted. Files built, verified and deployed.**
 
 ## What was built
 
 | File | Replaces | What it is |
 |---|---|---|
-| `Moving_Characters-transformed.glb` | `public/models/…` | The 3D character, re-cut with short hair in 4 views |
+| `Moving_Characters-transformed.glb` | `public/models/…` | The 3D character, re-cut with short hair in all 6 views |
+| `Moving_Characters_1.webp` | `public/textures/…` | The atlas, with the girl's painted hairpin erased (Fall) |
 | `head.webp` | `public/images/head.webp` | Loading-screen head, boy |
 | `head_smile.webp` | `public/images/head_smile.webp` | Hover state |
 
@@ -68,11 +69,25 @@ reliable write-back possible; an earlier attempt using `flatten()` produced a sc
 | Spring front (green dress) | ✅ short cut |
 | Spring side (bicycle) | ✅ short cut |
 | Summer (surfboard) | ✅ short cut |
-| Winter side (profile) | ❌ unchanged — hair mass is shared with the body mesh |
-| Fall (double-bun + braids) | ❌ unchanged — buns and braids need new geometry, not a cut |
+| Winter side (profile) | ✅ short cut, beanie re-seated |
+| Fall (double-bun + braids) | ✅ bowl cut, buns/braids/pin removed |
 
-The two unconverted views are honest gaps, not oversights: a profile silhouette has no separable
-hair piece to cut, and bun/braid hairstyles cannot be shortened by compressing a single mass.
+The last two needed a different technique from the first four, which is why they were
+left for a second pass:
+
+- **Winter side** — the long back-hair is five stacked overlay pieces drawn in front of a
+  short, skull-hugging head shape. Deleting the five overlays *is* the haircut: nothing is
+  deformed, so no seam or gap appears. The beanie, however, was drawn to sit on the long
+  hair and would otherwise float, so it is translated down and squashed slightly
+  (`y' = y_brim + (y - y_brim)·0.95 - 0.18`). One brown tuft still pokes out from under the
+  band — it is part of the skull piece that gives the profile its silhouette, so removing
+  it opens a hole in the back of the head. It reads as a fringe, and is kept deliberately.
+- **Fall** — the side buns and both braids are a single closed overlay piece layered over
+  a bowl cut, so removing that one piece converts the whole hairstyle. The gold crown and
+  the two gold pins are four small separate meshes and go with it. The black hairpin that
+  reads as a headband is **painted into the atlas**, not modelled: it is erased from the
+  texture instead (`tools/patch_atlas.py`). Only one mesh samples those texels, verified by
+  rasterising every primitive's UV coverage, so no other season is affected.
 
 ## Reproducing
 
@@ -80,11 +95,13 @@ hair piece to cut, and bun/braid hairstyles cannot be shortened by compressing a
 # 1. decode the shipped GLB (keeps node TRS, strips Draco)
 cd tools && node decode.mjs            # -> mc_decoded.glb
 
-# 2. deform + write back
+# 2. deform + write back (v4: four views, then v5: the last two)
 python3 boyify_glb.py                  # -> Moving_Characters-boy-raw.glb
+python3 boy5.py <decoded v4 glb> /tmp/MC-boy3-raw.glb
 
-# 3. re-compress with Draco
-node compress.mjs                      # -> Moving_Characters-transformed-boy.glb
+# 3. erase the painted hairpin (Fall), then re-compress with Draco
+python3 patch_atlas.py <atlas> <patched.webp>
+node compress.mjs <raw> <out.glb> <verify.glb>
 
 # 4. verify visually (no browser, no GPU)
 node dump_world.mjs <glb> /tmp/mc_flat.json
@@ -99,7 +116,8 @@ primitives with no modification and confirming all 30 world-space vertex sets we
 Drop the three files into the upstream tree and rebuild:
 
 ```bash
-cp boy/Moving_Characters-transformed.glb public/models/
+cp boy/Moving_Characters-transformed.glb    public/models/
+cp boy/Moving_Characters_1.webp             public/textures/
 cp boy/head.webp boy/head_smile.webp        public/images/
 npm run build && vercel deploy --prod
 ```
@@ -112,5 +130,7 @@ repo, so this cannot be pushed through it — it needs a repo under your own acc
 - The site's title ("Aimee Xu's Papercraft World") and its first-person copy about Aimee are
   unchanged. A boy character makes those inconsistent until they are updated too.
 - `og-image.webp` (the social card) still shows the girl.
+- The Winter-side tuft under the beanie band and the small fringe notch on Fall are kept on
+  purpose; see above.
 - These are geometric edits to an MIT-licensed derivative — the attribution requirements in the
   upstream `LICENSE.md` still apply.

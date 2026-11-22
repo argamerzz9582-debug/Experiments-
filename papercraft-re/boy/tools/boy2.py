@@ -13,7 +13,7 @@ sys.path.insert(0, '/tmp')
 from raster import load, sample_bilinear, render
 from boyify import components, is_brown, is_skin
 
-TEX = np.array(Image.open('/tmp/pc/public/textures/Moving_Characters_1.webp').convert('RGB'))
+TEX = np.array(Image.open('/tmp/up/public/textures/Moving_Characters_1.webp').convert('RGB'))
 
 
 def piece_info(m):
