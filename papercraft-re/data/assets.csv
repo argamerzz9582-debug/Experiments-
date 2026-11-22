@@ -1,0 +1,9 @@
+file,bytes,header_hex,format,usage
+images/Scene_1_Winter_1.ktx2,548821,ab4b5458203230bb0d0a1a0a,KTX2+Basis,UNUSED (12MB dir)
+basis/basis_transcoder.wasm,527333,0061736d0100000001de032e,WebAssembly,UNUSED (580KB dir)
+basis/basis_transcoder.js,,,JS glue,UNUSED
+models/Scene_1_Winter-transformed.glb,250956,676c5446020000004cd40300,glTF 2.0,used
+fonts/SlimeBox.woff2,18516,774f46320001000000004854,WOFF2,used
+textures/Scene_1_Winter_1.webp,444640,52494646d8c8060057454250,RIFF/WEBP,used
+media/og-image.webp,527048,52494646c00a080057454250,RIFF/WEBP,used
+media/favicon.svg,28751824,,SVG w/ embedded base64 PNG,used (28MB!)
